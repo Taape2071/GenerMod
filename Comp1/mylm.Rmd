@@ -1,0 +1,182 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Source Code
+
+``` {r, eval=FALSE}
+
+# Select Build, Build and reload to build and lode into the R-session.
+
+mylm <- function(formula, data = list(), contrasts = NULL, ...){
+  # Extract model matrix & responses
+  mf <- model.frame(formula = formula, data = data)
+  X  <- model.matrix(attr(mf, "terms"), data = mf, contrasts.arg = contrasts)
+  y  <- model.response(mf)
+  terms <- attr(mf, "terms")
+
+
+  # Add code here to calculate coefficients, residuals, fitted values, etc...
+  # and store the results in the list est
+
+  # beta and fitted values
+  matrix_inverse <- solve(crossprod(X))
+  coefficients <- matrix_inverse %*% t(X) %*% y
+  predicted_values <- X %*% coefficients
+  n <- length(predicted_values)
+
+  #intercept-only model
+  mean_y <- mean(y)
+  intercept_only_predictions <- rep(1, length(predicted_values)) * mean_y
+  residuals <- y - predicted_values
+  residual_sum_squares <- sum(residuals^2)
+  total_sum_squares <- sum((y - intercept_only_predictions)^2)
+  residual_variance <- residual_sum_squares / length(y)
+  regression_covariance <- residual_variance * solve(crossprod(X))
+
+  #z-values and p-values for each coefficient
+  num_coeffs <- length(coefficients)
+  t_values <- numeric(num_coeffs)
+  p_values <- numeric(num_coeffs)
+  for (index in seq_len(num_coeffs)) {
+    standard_error <- sqrt(diag(regression_covariance)[index])
+    t_values[index] <- (coefficients[index] - 0) / standard_error
+
+    p_values[index] <- 2 * pnorm(abs(t_values[index]), lower.tail = FALSE)
+  }
+
+  #F-statistic, Chi-squared and R^2
+  k <- num_coeffs - 1
+  df <- n - num_coeffs
+  df_residuals <- length(predicted_values) - length(coefficients)
+
+
+  explained_variance <- total_sum_squares - residual_sum_squares
+  variance_of_residuals <- residual_sum_squares / df_residuals
+  f_statistic <- ((total_sum_squares/residual_sum_squares)-1) * ((n - num_coeffs)/k)
+
+  chi_squared <- df * f_statistic
+  p_value_chi <- pchisq(chi_squared, df= (n - num_coeffs), lower.tail=FALSE)
+
+  r_squared <- 1 - residual_sum_squares / total_sum_squares
+
+  est <- list(
+    coefficients = coefficients,                   # Beta values
+    p_values = p_values,                            # p-values for coefficients
+    z_values = t_values,                           # z-values for coefficients
+    covariance_matrix = regression_covariance,            # Covariance matrix of regression coefficients
+    fitted_values = predicted_values,             # Fitted values from the model
+    residuals = residuals,                        # Residuals of the model
+    f_statistic = f_statistic,                     # F-statistic
+    SSE = residual_sum_squares,                   # Sum of Squared Errors
+    SST = total_sum_squares,                      # Total Sum of Squares
+    chi_statistic = chi_squared,                   # Chi-squared statistic
+    p_chi = p_value_chi,                          # p-value for the Chi-squared statistic
+    r_squared = r_squared,                             # R-squared value
+    model = mf                           # The model frame, assuming `mf` refers to the model frame
+  )
+
+  # Store call and formula used
+  est$call <- match.call()
+  est$formula <- formula
+
+  # Set class name. This is very important!
+  class(est) <- 'mylm'
+
+  # Return the object with all results
+  return(est)
+}
+
+print.mylm <- function(object, ...){
+  # Code here is used when print(object) is used on objects of class "mylm"
+  # Useful functions include cat, print.default and format
+  cat('Function Call Details: \n')
+  print(object$call)
+  coefficients <- object$coefficients
+  transposed_coeffs <- t(coefficients)
+  coef_df <- as.data.frame(transposed_coeffs, stringsAsFactors = FALSE)
+  colnames(coef_df) <- rownames(coefficients)
+  rownames(coef_df) <- NULL
+  cat('\nModel Parameters: \n')
+  print(coef_df)
+}
+
+
+summary.mylm <- function(object, ...){
+  # Code here is used when summary(object) is used on objects of class "mylm"
+  # Useful functions include cat, print.default and format
+    cat("Model Call: \n")
+    print(object$call)
+    coef_estimates <- object$coefficients
+    std_errors <- sqrt(diag(object$covariance_matrix))
+    z_scores <- object$z_values
+    p_values <- object$p_values
+    coefficient_summary <- data.frame(
+      Estimate = coef_estimates,
+      Std_Error = std_errors,
+      t = z_scores,
+      p = p_values
+    )
+    rownames(coefficient_summary) <- rownames(object$coefficients)
+    cat("\nCoefficients Summary: \n")
+    print(coefficient_summary)
+    cat("\nF-statistic: ")
+    print(object$f_statistic)
+    cat("Chi-squared Statistic: ")
+    print(object$chi_statistic)
+    cat("Chi-squared p-value: ")
+    print(object$p_chi)
+    cat("R-squared: ")
+    print(object$r_squared)
+}
+
+plot.mylm <- function(object, ...){
+  # Code here is used when plot(object) is used on objects of class "mylm"
+  predicted_vals <- object$fitted_values
+  residuals_vals <- object$residuals
+  plot(predicted_vals, residuals_vals,
+       xlab = "Fitted Values",
+       ylab = "Residuals",
+       main = "Residuals vs. Fitted Values")
+  abline(h = 0, col = "darkgray", lty = 2)
+}
+
+
+
+# This part is optional! You do not have to implement anova
+anova.mylm <- function(object, ...){
+  # Code here is used when anova(object) is used on objects of class "mylm"
+
+  # Components to test
+  comp <- attr(object$terms, "term.labels")
+
+  # Name of response
+  response <- deparse(object$terms[[2]])
+
+  # Fit the sequence of models
+  txtFormula <- paste(response, "~", sep = "")
+  model <- list()
+  for(numComp in 1:length(comp)){
+    if(numComp == 1){
+      txtFormula <- paste(txtFormula, comp[numComp])
+    }
+    else{
+      txtFormula <- paste(txtFormula, comp[numComp], sep = "+")
+    }
+    formula <- formula(txtFormula)
+    model[[numComp]] <- lm(formula = formula, data = object$model)
+  }
+
+  # Print Analysis of Variance Table
+  cat('Analysis of Variance Table\n')
+  cat(c('Response: ', response, '\n'), sep = '')
+  cat('          Df  Sum sq X2 value Pr(>X2)\n')
+  for(numComp in 1:length(comp)){
+    # Add code to print the line for each model tested
+  }
+
+  return(model)
+
+}
+```
